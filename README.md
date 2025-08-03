@@ -227,6 +227,30 @@ The system is designed to be easily extensible:
 - Add new document types
 - Implement additional AI models
 - Extend the chat interface
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### DateTime Serialization Error
+If you encounter the error `"Object of type datetime is not JSON serializable"`:
+
+**Cause**: The system stores metadata with datetime objects that need to be serialized to JSON format.
+
+**Solution**: The system automatically handles datetime serialization. If you're still seeing this error:
+
+1. Ensure you're using the latest version of the code
+2. Check that the `serialize_datetime` function in `database.py` is present
+3. Verify that metadata passed to the RAG engine uses ISO format strings for datetime fields
+
+**Prevention**: When adding custom metadata, convert datetime objects to ISO format:
+```python
+from datetime import datetime
+metadata = {
+    "uploaded_at": datetime.utcnow().isoformat(),  # ✅ Correct
+    # "uploaded_at": datetime.utcnow(),  # ❌ Will cause serialization error
+}
+```
 - Add new data sources
 
 ---

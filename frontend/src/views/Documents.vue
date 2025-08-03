@@ -15,85 +15,104 @@
 
     <div class="main-content">
       <div class="container">
-        <div class="documents-header">
-          <h2>Quản lý tài liệu</h2>
-          <button @click="showUploadDialog = true" class="btn-upload">
-            <el-icon><Upload /></el-icon>
-            Tải lên tài liệu
-          </button>
+        <div v-if="!isUserLoaded" class="loading">
+          <span class="spinner"></span>
+          Đang tải thông tin người dùng...
         </div>
-
-        <!-- Stats -->
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-number">{{ stats.total_documents || 0 }}</div>
-            <div class="stat-label">Tổng tài liệu</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">{{ stats.total_chunks || 0 }}</div>
-            <div class="stat-label">Tổng chunks</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-number">{{ Object.keys(stats.categories || {}).length }}</div>
-            <div class="stat-label">Danh mục</div>
-          </div>
-        </div>
-
-        <!-- Documents List -->
-        <div class="documents-list">
-          <div class="list-header">
-            <h3>Danh sách tài liệu</h3>
-            <div class="search-box">
-              <input
-                v-model="searchQuery"
-                placeholder="Tìm kiếm tài liệu..."
-                @input="searchDocuments"
-              />
+        
+        <div v-else>
+          <div class="documents-header">
+            <h2>Quản lý tài liệu</h2>
+            <button 
+              v-if="canUpload" 
+              @click="showUploadDialog = true" 
+              class="btn-upload"
+            >
+              <el-icon><Upload /></el-icon>
+              Tải lên tài liệu
+            </button>
+            <div v-else class="upload-notice">
+              <el-icon><InfoFilled /></el-icon>
+              <span>Chỉ giáo viên và quản trị viên mới có thể tải lên tài liệu</span>
             </div>
           </div>
 
-          <div v-if="loading" class="loading">
-            <span class="spinner"></span>
-            Đang tải...
+          <!-- Stats -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-number">{{ stats.total_documents || 0 }}</div>
+              <div class="stat-label">Tổng tài liệu</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number">{{ stats.total_chunks || 0 }}</div>
+              <div class="stat-label">Tổng chunks</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-number">{{ Object.keys(stats.categories || {}).length }}</div>
+              <div class="stat-label">Danh mục</div>
+            </div>
           </div>
 
-          <div v-else-if="documents.length === 0" class="empty-state">
-            <el-icon size="48"><Document /></el-icon>
-            <h3>Chưa có tài liệu nào</h3>
-            <p>Hãy tải lên tài liệu đầu tiên để bắt đầu sử dụng hệ thống RAG</p>
-          </div>
-
-          <div v-else class="documents-grid">
-            <div
-              v-for="doc in documents"
-              :key="doc.id"
-              class="document-card"
-            >
-              <div class="document-header">
-                <el-icon><Document /></el-icon>
-                <div class="document-title">{{ doc.filename }}</div>
+          <!-- Documents List -->
+          <div class="documents-list">
+            <div class="list-header">
+              <h3>Danh sách tài liệu</h3>
+              <div class="search-box">
+                <input
+                  v-model="searchQuery"
+                  placeholder="Tìm kiếm tài liệu..."
+                  @input="searchDocuments"
+                />
               </div>
-              
-              <div class="document-info">
-                <div class="info-item">
-                  <span class="label">Danh mục:</span>
-                  <span class="value">{{ doc.category || 'Chung' }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="label">Chunks:</span>
-                  <span class="value">{{ doc.chunk_count }}</span>
-                </div>
-                <div class="info-item">
-                  <span class="label">Ngày tải:</span>
-                  <span class="value">{{ formatDate(doc.uploaded_at) }}</span>
-                </div>
-              </div>
+            </div>
 
-              <div class="document-actions">
-                <button @click="deleteDocument(doc.id)" class="btn-delete">
-                  <el-icon><Delete /></el-icon>
-                  Xóa
-                </button>
+            <div v-if="loading" class="loading">
+              <span class="spinner"></span>
+              Đang tải...
+            </div>
+
+            <div v-else-if="documents.length === 0" class="empty-state">
+              <el-icon size="48"><Document /></el-icon>
+              <h3>Chưa có tài liệu nào</h3>
+              <p>Hãy tải lên tài liệu đầu tiên để bắt đầu sử dụng hệ thống RAG</p>
+            </div>
+
+            <div v-else class="documents-grid">
+              <div
+                v-for="doc in documents"
+                :key="doc.id"
+                class="document-card"
+              >
+                <div class="document-header">
+                  <el-icon><Document /></el-icon>
+                  <div class="document-title">{{ doc.filename }}</div>
+                </div>
+                
+                <div class="document-info">
+                  <div class="info-item">
+                    <span class="label">Danh mục:</span>
+                    <span class="value">{{ doc.category || 'Chung' }}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">Chunks:</span>
+                    <span class="value">{{ doc.chunk_count }}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">Ngày tải:</span>
+                    <span class="value">{{ formatDate(doc.uploaded_at) }}</span>
+                  </div>
+                </div>
+
+                <div class="document-actions">
+                  <button 
+                    v-if="canDelete(doc)" 
+                    @click="deleteDocument(doc.id)" 
+                    class="btn-delete"
+                  >
+                    <el-icon><Delete /></el-icon>
+                    Xóa
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -154,7 +173,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -177,6 +196,24 @@ export default {
     
     const uploadForm = reactive({
       category: ''
+    })
+    
+    // Check permissions
+    const canUpload = computed(() => {
+      return authStore.user && ['teacher', 'admin'].includes(authStore.user.role)
+    })
+    
+    const canDelete = (doc) => {
+      if (!authStore.user) return false
+      return authStore.user.role === 'admin' || doc.uploaded_by === authStore.user.id
+    }
+    
+    const userRole = computed(() => {
+      return authStore.user?.role || null
+    })
+    
+    const isUserLoaded = computed(() => {
+      return authStore.user !== null && authStore.user !== undefined
     })
     
     const fetchDocuments = async () => {
@@ -295,7 +332,8 @@ export default {
         month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: 'Asia/Ho_Chi_Minh'
       })
     }
     
@@ -312,9 +350,24 @@ export default {
       router.push('/login')
     }
     
-    onMounted(() => {
-      fetchDocuments()
-      fetchStats()
+    onMounted(async () => {
+      // Đảm bảo user được load từ localStorage
+      if (authStore.token && !authStore.user) {
+        await authStore.initializeAuth()
+      }
+      
+      if (isUserLoaded.value) {
+        fetchDocuments()
+        fetchStats()
+      }
+    })
+    
+    // Watch for user loading
+    watch(isUserLoaded, (newValue) => {
+      if (newValue) {
+        fetchDocuments()
+        fetchStats()
+      }
     })
     
     return {
@@ -334,7 +387,11 @@ export default {
       searchDocuments,
       formatDate,
       formatFileSize,
-      logout
+      logout,
+      canUpload,
+      canDelete,
+      userRole,
+      isUserLoaded
     }
   }
 }
@@ -444,6 +501,22 @@ export default {
 .btn-upload:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.upload-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  color: #856404;
+  font-size: 14px;
+}
+
+.upload-notice .el-icon {
+  color: #f39c12;
 }
 
 .stats-grid {
@@ -693,5 +766,20 @@ export default {
 .btn-upload-confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style> 

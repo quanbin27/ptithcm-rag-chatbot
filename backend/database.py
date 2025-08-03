@@ -69,24 +69,57 @@ def load_faiss_data():
     """Load FAISS index and documents from disk"""
     global faiss_index, faiss_documents, faiss_metadata
     
-    # Load documents and metadata
-    if os.path.exists(FAISS_DOCUMENTS_FILE):
-        with open(FAISS_DOCUMENTS_FILE, 'r', encoding='utf-8') as f:
-            faiss_documents = json.load(f)
+    # Initialize empty lists
+    faiss_documents = []
+    faiss_metadata = []
     
-    if os.path.exists(FAISS_METADATA_FILE):
-        with open(FAISS_METADATA_FILE, 'r', encoding='utf-8') as f:
-            faiss_metadata = json.load(f)
+    # Load documents and metadata with error handling
+    try:
+        if os.path.exists(FAISS_DOCUMENTS_FILE):
+            with open(FAISS_DOCUMENTS_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:  # Only load if file is not empty
+                    faiss_documents = json.loads(content)
+                    print(f"✅ Loaded {len(faiss_documents)} documents")
+                else:
+                    print("⚠️ Documents file is empty, starting fresh")
+    except Exception as e:
+        print(f"⚠️ Error loading documents: {e}, starting fresh")
+    
+    try:
+        if os.path.exists(FAISS_METADATA_FILE):
+            with open(FAISS_METADATA_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:  # Only load if file is not empty
+                    faiss_metadata = json.loads(content)
+                    print(f"✅ Loaded {len(faiss_metadata)} metadata entries")
+                else:
+                    print("⚠️ Metadata file is empty, starting fresh")
+    except Exception as e:
+        print(f"⚠️ Error loading metadata: {e}, starting fresh")
     
     # Load or create FAISS index
-    if os.path.exists(FAISS_INDEX_FILE):
-        faiss_index = faiss.read_index(FAISS_INDEX_FILE)
-        print(f"✅ Loaded existing FAISS index with {faiss_index.ntotal} vectors")
-    else:
-        # Create new index (assuming 384-dimensional vectors from all-MiniLM-L6-v2)
+    try:
+        if os.path.exists(FAISS_INDEX_FILE):
+            faiss_index = faiss.read_index(FAISS_INDEX_FILE)
+            print(f"✅ Loaded existing FAISS index with {faiss_index.ntotal} vectors")
+        else:
+            # Create new index (assuming 384-dimensional vectors from all-MiniLM-L6-v2)
+            dimension = 384
+            faiss_index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+            print("✅ Created new FAISS index")
+    except Exception as e:
+        print(f"⚠️ Error loading FAISS index: {e}, creating new one")
         dimension = 384
-        faiss_index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+        faiss_index = faiss.IndexFlatIP(dimension)
         print("✅ Created new FAISS index")
+
+def serialize_datetime(obj):
+    """Helper function to serialize datetime objects to ISO format strings"""
+    from datetime import datetime
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
 
 def save_faiss_data():
     """Save FAISS index and documents to disk"""
@@ -96,8 +129,16 @@ def save_faiss_data():
     with open(FAISS_DOCUMENTS_FILE, 'w', encoding='utf-8') as f:
         json.dump(faiss_documents, f, ensure_ascii=False, indent=2)
     
+    # Serialize metadata to handle datetime objects
+    serialized_metadata = []
+    for meta in faiss_metadata:
+        serialized_meta = {}
+        for key, value in meta.items():
+            serialized_meta[key] = serialize_datetime(value)
+        serialized_metadata.append(serialized_meta)
+    
     with open(FAISS_METADATA_FILE, 'w', encoding='utf-8') as f:
-        json.dump(faiss_metadata, f, ensure_ascii=False, indent=2)
+        json.dump(serialized_metadata, f, ensure_ascii=False, indent=2)
     
     # Save FAISS index
     faiss.write_index(faiss_index, FAISS_INDEX_FILE)
@@ -136,7 +177,16 @@ def add_to_faiss(embeddings: np.ndarray, documents: List[str], metadata: List[Di
     
     # Add documents and metadata
     faiss_documents.extend(documents)
-    faiss_metadata.extend(metadata)
+    
+    # Serialize metadata to handle datetime objects
+    serialized_metadata = []
+    for meta in metadata:
+        serialized_meta = {}
+        for key, value in meta.items():
+            serialized_meta[key] = serialize_datetime(value)
+        serialized_metadata.append(serialized_meta)
+    
+    faiss_metadata.extend(serialized_metadata)
     
     # Save to disk
     save_faiss_data()

@@ -21,6 +21,13 @@ async def upload_document(
 ):
     """Upload a document to the RAG system"""
     try:
+        # Check user role - only teacher and admin can upload
+        if current_user.role not in ["teacher", "admin"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only teachers and administrators can upload documents"
+            )
+        
         # Check file type
         if not file.filename.endswith('.txt'):
             raise HTTPException(
@@ -37,7 +44,7 @@ async def upload_document(
             "source": file.filename,
             "category": category or "general",
             "uploaded_by": current_user.id,
-            "uploaded_at": datetime.utcnow()
+            "uploaded_at": datetime.utcnow().isoformat()
         }
         
         # Add document to RAG system
@@ -74,8 +81,15 @@ async def upload_document(
 
 @router.get("/list", response_model=List[DocumentInfo])
 async def list_documents(current_user = Depends(get_current_user)):
-    """List all documents in the system"""
+    """List all documents in the system - only teachers and admins"""
     try:
+        # Check user role - students cannot access
+        if current_user.role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students cannot access document management"
+            )
+        
         db = get_mongo_db()
         
         # Get all documents
@@ -105,8 +119,15 @@ async def delete_document(
     doc_id: str,
     current_user = Depends(get_current_user)
 ):
-    """Delete a document from the system"""
+    """Delete a document from the system - only teachers and admins"""
     try:
+        # Check user role - students cannot delete
+        if current_user.role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students cannot delete documents"
+            )
+        
         db = get_mongo_db()
         
         # Check if document exists
@@ -121,7 +142,7 @@ async def delete_document(
         if current_user.role != "admin" and doc_data.get("uploaded_by") != current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied"
+                detail="Permission denied. Only administrators or document owners can delete documents"
             )
         
         # Remove from MongoDB
@@ -145,8 +166,15 @@ async def search_documents(
     search_request: SearchRequest,
     current_user = Depends(get_current_user)
 ):
-    """Search documents using semantic search"""
+    """Search documents using semantic search - only teachers and admins"""
     try:
+        # Check user role - students cannot access
+        if current_user.role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students cannot access document management"
+            )
+        
         # Use RAG engine for semantic search
         results = rag_engine.semantic_search(search_request.query, search_request.limit)
         
@@ -163,8 +191,15 @@ async def search_documents(
 
 @router.get("/stats")
 async def get_document_stats(current_user = Depends(get_current_user)):
-    """Get document statistics"""
+    """Get document statistics - only teachers and admins"""
     try:
+        # Check user role - students cannot access
+        if current_user.role == "student":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Students cannot access document management"
+            )
+        
         db = get_mongo_db()
         
         # Get all documents

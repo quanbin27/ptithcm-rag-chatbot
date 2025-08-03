@@ -28,7 +28,7 @@ const routes = [
     path: '/documents',
     name: 'Documents',
     component: () => import('@/views/Documents.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, requiresTeacher: true }
   },
   {
     path: '/profile',
@@ -50,6 +50,9 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/login')
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
+    next('/chat')
+  } else if (to.meta.requiresTeacher && authStore.user?.role === 'student') {
+    // Redirect students away from teacher-only pages
     next('/chat')
   } else {
     next()

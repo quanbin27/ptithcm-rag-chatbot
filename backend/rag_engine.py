@@ -352,14 +352,23 @@ class RAGEngine:
         """Build context string with token management"""
         context_parts = []
         total_tokens = 0
+        seen_sources = set()
         
         for result in search_results:
             content_tokens = self._count_tokens(result.content)
             
             if total_tokens + content_tokens > self.config.max_context_tokens:
                 break
+            
+            source = result.metadata.get('source', 'unknown')
+            
+            # Chỉ hiển thị nguồn nếu chưa thấy trước đó
+            if source not in seen_sources:
+                context_parts.append(f"[Nguồn: {source}]\n{result.content}")
+                seen_sources.add(source)
+            else:
+                context_parts.append(result.content)
                 
-            context_parts.append(f"[Nguồn: {result.metadata.get('source', 'unknown')}]\n{result.content}")
             total_tokens += content_tokens
         
         return "\n\n".join(context_parts), total_tokens

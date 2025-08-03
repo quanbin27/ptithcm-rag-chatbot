@@ -6,7 +6,7 @@
         <h1>PTITHCM RAG System</h1>
         <nav class="nav">
           <router-link to="/chat" class="nav-link active">Chat</router-link>
-          <router-link to="/documents" class="nav-link">Tài liệu</router-link>
+          <router-link v-if="userRole !== 'student'" to="/documents" class="nav-link">Tài liệu</router-link>
           <router-link to="/profile" class="nav-link">Hồ sơ</router-link>
           <button @click="logout" class="btn-logout">Đăng xuất</button>
         </nav>
@@ -59,7 +59,7 @@
                 <div class="message-text" v-html="formatMessage(message.content)"></div>
                 <div v-if="message.sources && message.sources.length > 0" class="message-sources">
                   <div class="sources-title">Nguồn tham khảo:</div>
-                  <div v-for="source in message.sources.slice(0, 3)" :key="source.metadata?.source" class="source-item">
+                  <div v-for="source in getUniqueSources(message.sources)" :key="source.metadata?.source" class="source-item">
                     {{ source.metadata?.source || 'Tài liệu' }}
                   </div>
                 </div>
@@ -98,7 +98,7 @@
 </template>
 
 <script>
-import { ref, reactive, onMounted, nextTick, computed } from 'vue'
+import { ref, reactive, onMounted, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
@@ -206,7 +206,11 @@ export default {
     }
     
     const formatDate = (dateString) => {
-      return new Date(dateString).toLocaleDateString('vi-VN', {
+      // Chuyển đổi từ UTC sang giờ Việt Nam (+7)
+      const utcDate = new Date(dateString);
+      const vietnamTime = new Date(utcDate.getTime() + (7 * 60 * 60 * 1000));
+      
+      return vietnamTime.toLocaleDateString('vi-VN', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -214,15 +218,46 @@ export default {
         minute: '2-digit'
       })
     }
+
+    const getUniqueSources = (sources) => {
+      const seenSources = new Set();
+      const uniqueSources = [];
+      
+      sources.forEach(source => {
+        const sourceName = source.metadata?.source || 'Tài liệu';
+        if (!seenSources.has(sourceName)) {
+          seenSources.add(sourceName);
+          uniqueSources.push(source);
+        }
+      });
+      
+      return uniqueSources.slice(0, 3); // Giới hạn 3 nguồn
+    };
+    
+    const userRole = computed(() => {
+      const role = authStore.user?.role || null
+      console.log('Current user role:', role)
+      return role
+    })
     
     const logout = () => {
       authStore.logout()
       router.push('/login')
     }
     
-    onMounted(() => {
+    onMounted(async () => {
+      // Đảm bảo user được load từ localStorage
+      if (authStore.token && !authStore.user) {
+        await authStore.initializeAuth()
+      }
+      
       fetchSessions()
     })
+    
+    // Watch for user changes
+    watch(() => authStore.user, (newUser) => {
+      console.log('User changed:', newUser?.role)
+    }, { immediate: true })
     
     return {
       sessions,
@@ -236,7 +271,9 @@ export default {
       selectSession,
       formatMessage,
       formatDate,
-      logout
+      logout,
+      userRole,
+      getUniqueSources
     }
   }
 }

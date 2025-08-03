@@ -6,7 +6,7 @@
         <h1>PTITHCM RAG System</h1>
         <nav class="nav">
           <router-link to="/chat" class="nav-link">Chat</router-link>
-          <router-link to="/documents" class="nav-link">Tài liệu</router-link>
+          <router-link v-if="userRole !== 'student'" to="/documents" class="nav-link">Tài liệu</router-link>
           <router-link to="/profile" class="nav-link active">Hồ sơ</router-link>
           <button @click="logout" class="btn-logout">Đăng xuất</button>
         </nav>
@@ -62,6 +62,7 @@ export default {
     const authStore = useAuthStore()
     
     const user = computed(() => authStore.user)
+    const userRole = computed(() => user.value?.role)
     
     const getRoleName = (role) => {
       const roleNames = {
@@ -76,7 +77,10 @@ export default {
       return new Date(dateString).toLocaleDateString('vi-VN', {
         day: '2-digit',
         month: '2-digit',
-        year: 'numeric'
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Ho_Chi_Minh'
       })
     }
     
@@ -85,14 +89,18 @@ export default {
       router.push('/login')
     }
     
-    onMounted(() => {
-      if (!user.value) {
-        authStore.fetchUser()
+    onMounted(async () => {
+      // Đảm bảo user được load từ localStorage
+      if (authStore.token && !authStore.user) {
+        await authStore.initializeAuth()
+      } else if (!user.value) {
+        await authStore.fetchUser()
       }
     })
     
     return {
       user,
+      userRole,
       getRoleName,
       formatDate,
       logout
