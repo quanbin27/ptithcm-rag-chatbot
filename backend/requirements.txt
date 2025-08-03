@@ -1,0 +1,37 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+redis==5.0.1
+motor==3.3.2
+pymongo==4.6.1
+google-generativeai==0.3.2
+
+# AI/ML packages
+sentence-transformers==2.2.2
+huggingface-hub==0.19.4
+transformers==4.35.2
+
+# FAISS for vector similarity search
+faiss-cpu>=1.11.0
+
+# LangChain packages - using compatible versions
+langchain-core>=0.1.0
+langchain-community>=0.0.10
+langchain-text-splitters>=0.0.1
+
+# Other dependencies
+pydantic==2.5.0
+python-dotenv==1.0.0
+aiofiles==23.2.1
+numpy>=1.24.0
+pandas>=2.0.0
+tiktoken==0.5.1
+requests==2.31.0
+
+# Additional dependencies for better text processing
+beautifulsoup4==4.12.2
+lxml==4.9.3
+python-docx==1.1.0
+PyPDF2==3.0.1
