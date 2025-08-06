@@ -19,6 +19,7 @@ def load_documents():
     
     if not os.path.exists(documents_path) or not os.path.exists(metadata_path):
         print("❌ Không tìm thấy file documents.json hoặc metadata.json")
+        print("💡 Vui lòng chạy init_faiss_data.py trước để tạo dữ liệu")
         return None, None
     
     try:
@@ -27,6 +28,11 @@ def load_documents():
         
         with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
+        
+        # Validate data consistency
+        if len(documents) != len(metadata):
+            print(f"❌ Số lượng documents ({len(documents)}) không khớp với metadata ({len(metadata)})")
+            return None, None
         
         print(f"✅ Đã tải {len(documents)} documents và {len(metadata)} metadata")
         return documents, metadata
@@ -55,6 +61,22 @@ async def create_faiss_index():
     if not documents or not metadata:
         return False
     
+    # Validate document format
+    if not isinstance(documents, list) or not all(isinstance(doc, str) for doc in documents):
+        print("❌ Documents không đúng định dạng (phải là list of strings)")
+        return False
+    
+    # Validate consistency - use documents count as reference
+    if len(documents) != len(metadata):
+        print(f"⚠️ Data inconsistency: {len(documents)} documents vs {len(metadata)} metadata")
+        print(f"⚠️ Using documents count ({len(documents)}) as reference")
+        if len(metadata) > len(documents):
+            metadata = metadata[:len(documents)]
+            print(f"⚠️ Trimmed metadata to {len(metadata)} entries")
+        else:
+            print("❌ Metadata count is less than documents, cannot proceed")
+            return False
+    
     # Initialize embedding model
     print("📚 Khởi tạo embedding model...")
     try:
@@ -68,7 +90,7 @@ async def create_faiss_index():
     print("🔄 Đang tạo embeddings...")
     try:
         embeddings = embedding_model.encode(documents, show_progress_bar=True)
-        print(f"✅ Đã tạo {len(embeddings)} embeddings")
+        print(f"✅ Đã tạo {len(embeddings)} embeddings với shape {embeddings.shape}")
     except Exception as e:
         print(f"❌ Lỗi tạo embeddings: {e}")
         return False
@@ -107,7 +129,8 @@ async def create_faiss_index():
         
         print(f"Kết quả tìm kiếm cho '{test_query}':")
         for i, (distance, idx) in enumerate(zip(D[0], I[0])):
-            print(f"  {i+1}. Document {idx}: {documents[idx][:100]}... (distance: {distance:.4f})")
+            if idx < len(documents):
+                print(f"  {i+1}. Document {idx}: {documents[idx][:100]}... (distance: {distance:.4f})")
         
         return True
         
@@ -126,7 +149,7 @@ async def main():
     
     if success:
         print("\n🎉 Hoàn thành! FAISS index đã sẵn sàng cho RAG")
-        print("Bạn có thể chạy ứng dụng với: python start_faiss_simple.py")
+        print("Bạn có thể chạy ứng dụng với: python main.py")
     else:
         print("\n❌ Thất bại! Vui lòng kiểm tra lỗi và thử lại")
 

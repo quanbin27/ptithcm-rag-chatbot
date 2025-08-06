@@ -139,12 +139,12 @@
         </div>
 
         <div class="form-group">
-          <label>Danh mục (tùy chọn)</label>
-          <input
-            v-model="uploadForm.category"
-            placeholder="Ví dụ: tuyển sinh, học tập, cơ sở vật chất..."
-            class="form-input"
-          />
+          <label>Danh mục</label>
+          <select v-model="uploadForm.category" class="form-input">
+            <option value="admission">Tuyển sinh</option>
+            <option value="academic">Học vụ</option>
+            <option value="general">Thông tin chung</option>
+          </select>
         </div>
 
         <div v-if="selectedFile" class="file-info">

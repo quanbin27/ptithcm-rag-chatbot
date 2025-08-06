@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Form
 from models import DocumentUpload, DocumentInfo, SearchRequest, SearchResponse
 from auth import get_current_user
 from rag_engine import RAGEngine
@@ -7,6 +7,7 @@ from bson import ObjectId
 import uuid
 from datetime import datetime
 from typing import List
+import logging
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ rag_engine = RAGEngine()
 @router.post("/upload", response_model=DocumentInfo)
 async def upload_document(
     file: UploadFile = File(...),
-    category: str = None,
+    category: str = Form(None),
     current_user = Depends(get_current_user)
 ):
     """Upload a document to the RAG system"""
@@ -27,18 +28,22 @@ async def upload_document(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only teachers and administrators can upload documents"
             )
-        
         # Check file type
         if not file.filename.endswith('.txt'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only .txt files are supported"
             )
-        
+        # Validate category
+        valid_categories = ["admission", "academic", "general"]
+        if category and category not in valid_categories:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
+            )
         # Read file content
         content = await file.read()
         content_str = content.decode('utf-8')
-        
         # Create document metadata
         metadata = {
             "source": file.filename,
@@ -46,10 +51,12 @@ async def upload_document(
             "uploaded_by": current_user.id,
             "uploaded_at": datetime.utcnow().isoformat()
         }
-        
+        logging.info(f"[UPLOAD] Metadata truyền vào add_document: {metadata}")
         # Add document to RAG system
         chunk_count = rag_engine.add_document(content_str, metadata)
-        
+        # Sau khi add, log lại category của từng chunk vừa add
+        for chunk in rag_engine.faiss_metadata[-chunk_count:]:
+            logging.info(f"[UPLOAD] Chunk category: {chunk.get('category')}, source: {chunk.get('source')}, chunk_index: {chunk.get('chunk_index')}")
         # Store document info in MongoDB
         db = get_mongo_db()
         doc_info = {
@@ -60,9 +67,7 @@ async def upload_document(
             "chunk_count": chunk_count,
             "file_size": len(content_str)
         }
-        
         result = await db.documents.insert_one(doc_info)
-        
         return DocumentInfo(
             id=str(result.inserted_id),
             filename=file.filename,
@@ -70,7 +75,6 @@ async def upload_document(
             uploaded_at=doc_info["uploaded_at"],
             chunk_count=chunk_count
         )
-        
     except HTTPException:
         raise
     except Exception as e:

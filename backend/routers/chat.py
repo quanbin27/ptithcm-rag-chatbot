@@ -7,6 +7,8 @@ from bson import ObjectId
 import uuid
 from datetime import datetime
 from typing import List
+import traceback
+import logging
 
 router = APIRouter()
 
@@ -92,18 +94,29 @@ async def send_message(
             {"$set": {"updated_at": datetime.utcnow()}}
         )
         
+        # Sửa lại trả về route là string (nếu nhiều category thì join bằng '|')
+        route_value = None
+        if isinstance(rag_result.get("route"), list):
+            if len(rag_result["route"]) == 1:
+                route_value = rag_result["route"][0]
+            else:
+                route_value = "|".join(rag_result["route"])
+        else:
+            route_value = rag_result.get("route")
         return ChatResponse(
             response=rag_result["response"],
             session_id=session_id,
             message_id=assistant_message_id,
             sources=rag_result["sources"],
-            route=rag_result.get("route"),
+            route=route_value,
             metadata=rag_result.get("metadata")
         )
         
     except HTTPException:
         raise
     except Exception as e:
+        logging.error(f"Chat processing failed: {e}")
+        logging.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Chat processing failed: {str(e)}"
@@ -246,5 +259,29 @@ async def get_rag_stats(current_user = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get RAG stats: {str(e)}"
+            detail=f"Error getting stats: {str(e)}"
+        )
+
+@router.get("/debug/{query}")
+async def debug_search(query: str, current_user = Depends(get_current_user)):
+    """Debug search functionality"""
+    try:
+        debug_info = rag_engine.debug_search(query)
+        return debug_info
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error debugging search: {str(e)}"
+        )
+
+@router.get("/test/{query}")
+async def test_search(query: str, current_user = Depends(get_current_user)):
+    """Test basic FAISS search functionality"""
+    try:
+        test_result = rag_engine.test_faiss_search(query)
+        return test_result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error testing search: {str(e)}"
         ) 

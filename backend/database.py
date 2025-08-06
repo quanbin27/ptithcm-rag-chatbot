@@ -80,7 +80,12 @@ def load_faiss_data():
                 content = f.read().strip()
                 if content:  # Only load if file is not empty
                     faiss_documents = json.loads(content)
-                    print(f"✅ Loaded {len(faiss_documents)} documents")
+                    # Validate documents are strings
+                    if not all(isinstance(doc, str) for doc in faiss_documents):
+                        print("⚠️ Documents không đúng định dạng, bắt đầu mới")
+                        faiss_documents = []
+                    else:
+                        print(f"✅ Loaded {len(faiss_documents)} documents")
                 else:
                     print("⚠️ Documents file is empty, starting fresh")
     except Exception as e:
@@ -98,11 +103,31 @@ def load_faiss_data():
     except Exception as e:
         print(f"⚠️ Error loading metadata: {e}, starting fresh")
     
+    # Validate consistency
+    if len(faiss_documents) != len(faiss_metadata):
+        print(f"⚠️ Data inconsistency: {len(faiss_documents)} documents vs {len(faiss_metadata)} metadata")
+        print(f"⚠️ Using documents count ({len(faiss_documents)}) as reference")
+        # Trim metadata to match documents count
+        if len(faiss_metadata) > len(faiss_documents):
+            faiss_metadata = faiss_metadata[:len(faiss_documents)]
+            print(f"⚠️ Trimmed metadata to {len(faiss_metadata)} entries")
+        else:
+            print(f"⚠️ Metadata count is less than documents, this is unusual")
+            # Don't clear data, just use what we have
+    
     # Load or create FAISS index
     try:
-        if os.path.exists(FAISS_INDEX_FILE):
+        if os.path.exists(FAISS_INDEX_FILE) and len(faiss_documents) > 0:
+            print(f"📁 Loading existing FAISS index from {FAISS_INDEX_FILE}")
             faiss_index = faiss.read_index(FAISS_INDEX_FILE)
             print(f"✅ Loaded existing FAISS index with {faiss_index.ntotal} vectors")
+            
+            # Validate index consistency
+            if faiss_index.ntotal != len(faiss_documents):
+                print(f"⚠️ Index inconsistency: {faiss_index.ntotal} vectors vs {len(faiss_documents)} documents")
+                print("⚠️ Creating new index")
+                dimension = 384
+                faiss_index = faiss.IndexFlatIP(dimension)
         else:
             # Create new index (assuming 384-dimensional vectors from all-MiniLM-L6-v2)
             dimension = 384
@@ -113,6 +138,13 @@ def load_faiss_data():
         dimension = 384
         faiss_index = faiss.IndexFlatIP(dimension)
         print("✅ Created new FAISS index")
+    
+    # Final validation
+    print(f"📊 Final status:")
+    print(f"  - Documents: {len(faiss_documents)}")
+    print(f"  - Metadata: {len(faiss_metadata)}")
+    print(f"  - FAISS vectors: {faiss_index.ntotal}")
+    print(f"  - FAISS index type: {type(faiss_index)}")
 
 def serialize_datetime(obj):
     """Helper function to serialize datetime objects to ISO format strings"""
@@ -168,28 +200,64 @@ def get_faiss_metadata() -> List[Dict[str, Any]]:
         raise Exception("FAISS metadata not initialized")
     return faiss_metadata
 
-def add_to_faiss(embeddings: np.ndarray, documents: List[str], metadata: List[Dict[str, Any]]):
-    """Add embeddings, documents, and metadata to FAISS"""
+def add_to_faiss(embeddings: np.ndarray, documents: List[str], metadata: List[Dict[str, Any]], reset: bool = False):
+    """Add embeddings, documents, and metadata to FAISS. Nếu reset=True thì ghi đè toàn bộ (dùng cho init), nếu False thì chỉ append tránh trùng lặp (dùng cho rag_engine)."""
     global faiss_index, faiss_documents, faiss_metadata
-    
-    # Add embeddings to FAISS index
-    faiss_index.add(embeddings.astype('float32'))
-    
-    # Add documents and metadata
-    faiss_documents.extend(documents)
-    
-    # Serialize metadata to handle datetime objects
-    serialized_metadata = []
-    for meta in metadata:
-        serialized_meta = {}
-        for key, value in meta.items():
-            serialized_meta[key] = serialize_datetime(value)
-        serialized_metadata.append(serialized_meta)
-    
-    faiss_metadata.extend(serialized_metadata)
-    
-    # Save to disk
-    save_faiss_data()
+    import hashlib
+    if reset:
+        # Ghi đè toàn bộ dữ liệu
+        print(f"🧹 Reset FAISS: clear all data and re-create index")
+        dimension = 384
+        faiss_index = faiss.IndexFlatIP(dimension)
+        faiss_documents.clear()
+        faiss_metadata.clear()
+        faiss_index.add(embeddings.astype('float32'))
+        faiss_documents.extend(documents)
+        # Serialize metadata to handle datetime objects
+        serialized_metadata = []
+        for meta in metadata:
+            serialized_meta = {}
+            for key, value in meta.items():
+                serialized_meta[key] = serialize_datetime(value)
+            serialized_metadata.append(serialized_meta)
+        faiss_metadata.extend(serialized_metadata)
+        print(f"✅ Reset and added {len(documents)} documents")
+        print(f"✅ FAISS index now has {faiss_index.ntotal} vectors")
+        save_faiss_data()
+        return
+    # Append mode (giữ nguyên logic cũ)
+    if faiss_index is None:
+        dimension = 384
+        faiss_index = faiss.IndexFlatIP(dimension)
+        print(f"✅ Created new FAISS index (append mode)")
+    existing_hashes = set(hashlib.md5(doc.encode('utf-8')).hexdigest() for doc in faiss_documents)
+    new_embeddings = []
+    new_documents = []
+    new_metadata = []
+    for i, doc in enumerate(documents):
+        doc_hash = hashlib.md5(doc.encode('utf-8')).hexdigest()
+        if doc_hash in existing_hashes:
+            print(f"⚠️ Duplicate document detected, skipping: {doc[:60]}...")
+            continue
+        new_embeddings.append(embeddings[i])
+        new_documents.append(doc)
+        new_metadata.append(metadata[i])
+        existing_hashes.add(doc_hash)
+    if new_embeddings:
+        faiss_index.add(np.array(new_embeddings).astype('float32'))
+        faiss_documents.extend(new_documents)
+        serialized_metadata = []
+        for meta in new_metadata:
+            serialized_meta = {}
+            for key, value in meta.items():
+                serialized_meta[key] = serialize_datetime(value)
+            serialized_metadata.append(serialized_meta)
+        faiss_metadata.extend(serialized_metadata)
+        print(f"✅ Added {len(new_documents)} new documents (no duplicates)")
+        print(f"✅ FAISS index now has {faiss_index.ntotal} vectors")
+        save_faiss_data()
+    else:
+        print("ℹ️ No new documents to add (all were duplicates)")
 
 def get_mongo_db() -> motor.motor_asyncio.AsyncIOMotorDatabase:
     """Get MongoDB database"""

@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from dataclasses import dataclass, asdict
 from enum import Enum
 import asyncio
+import traceback
 
 load_dotenv()
 
@@ -37,10 +38,10 @@ class SearchResult:
 class RAGConfig:
     chunk_size: int = 800
     chunk_overlap: int = 150
-    search_limit: int = 5
+    search_limit: int = 10
     cache_ttl: int = 3600
-    max_context_tokens: int = 4000
-    similarity_threshold: float = 0.5
+    max_context_tokens: int = 5000
+    similarity_threshold: float = 0.55
 
 class RAGEngine:
     def __init__(self, config: RAGConfig = None):
@@ -79,19 +80,84 @@ class RAGEngine:
         # Semantic routing embeddings (precomputed for efficiency)
         self._init_semantic_routes()
     
+    @classmethod
+    async def create(cls, config: RAGConfig = None):
+        """Async factory method to create RAGEngine"""
+        instance = cls(config)
+        await instance._init_faiss_async()
+        return instance
+    
     def _init_faiss(self):
         """Initialize FAISS with better error handling"""
         try:
             from database import get_faiss_index, get_faiss_documents, get_faiss_metadata
+            logger.info("🔄 Initializing FAISS...")
+            
             self.faiss_index = get_faiss_index()
+            logger.info(f"✅ FAISS index loaded: {self.faiss_index.ntotal} vectors")
+            
             self.faiss_documents = get_faiss_documents()
+            logger.info(f"✅ Documents loaded: {len(self.faiss_documents)} documents")
+            
             self.faiss_metadata = get_faiss_metadata()
-            logger.info(f"RAG Engine initialized with {len(self.faiss_documents)} documents")
+            logger.info(f"✅ Metadata loaded: {len(self.faiss_metadata)} metadata entries")
+            
+            # Validate data consistency
+            if len(self.faiss_documents) != len(self.faiss_metadata):
+                logger.error(f"Data inconsistency: {len(self.faiss_documents)} documents vs {len(self.faiss_metadata)} metadata")
+                raise ValueError("Documents and metadata count mismatch")
+            
+            if self.faiss_index.ntotal == 0:
+                logger.error("FAISS index is empty")
+                raise ValueError("FAISS index is empty")
+            
+            if self.faiss_index.ntotal != len(self.faiss_documents):
+                logger.error(f"Index-document mismatch: {self.faiss_index.ntotal} vectors vs {len(self.faiss_documents)} documents")
+                raise ValueError("FAISS index and documents count mismatch")
+                
         except Exception as e:
-            logger.warning(f"FAISS not initialized: {e}")
+            logger.error(f"Failed to initialize FAISS: {e}")
             self.faiss_index = None
-            self.faiss_documents = []
-            self.faiss_metadata = []
+            self.faiss_documents = None
+            self.faiss_metadata = None
+    
+    async def _init_faiss_async(self):
+        """Async initialization of FAISS"""
+        try:
+            from database import init_db, get_faiss_index, get_faiss_documents, get_faiss_metadata
+            logger.info("🔄 Initializing FAISS (async)...")
+            
+            # Initialize database first
+            await init_db()
+            logger.info("✅ Database initialized")
+            
+            self.faiss_index = get_faiss_index()
+            logger.info(f"✅ FAISS index loaded: {self.faiss_index.ntotal} vectors")
+            
+            self.faiss_documents = get_faiss_documents()
+            logger.info(f"✅ Documents loaded: {len(self.faiss_documents)} documents")
+            
+            self.faiss_metadata = get_faiss_metadata()
+            logger.info(f"✅ Metadata loaded: {len(self.faiss_metadata)} metadata entries")
+            
+            # Validate data consistency
+            if len(self.faiss_documents) != len(self.faiss_metadata):
+                logger.error(f"Data inconsistency: {len(self.faiss_documents)} documents vs {len(self.faiss_metadata)} metadata")
+                raise ValueError("Documents and metadata count mismatch")
+            
+            if self.faiss_index.ntotal == 0:
+                logger.error("FAISS index is empty")
+                raise ValueError("FAISS index is empty")
+            
+            if self.faiss_index.ntotal != len(self.faiss_documents):
+                logger.error(f"Index-document mismatch: {self.faiss_index.ntotal} vectors vs {len(self.faiss_documents)} documents")
+                raise ValueError("FAISS index and documents count mismatch")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize FAISS: {e}")
+            self.faiss_index = None
+            self.faiss_documents = None
+            self.faiss_metadata = None
     
     def _init_redis(self):
         """Initialize Redis with better error handling"""
@@ -106,32 +172,21 @@ class RAGEngine:
             self.redis_client = None
     
     def _init_semantic_routes(self):
-        """Initialize semantic routing with embedding-based approach"""
-        self.route_definitions = {
+        """Initialize semantic routing with embedding-based and keyword-based approach"""
+        # Định nghĩa từ khóa đặc trưng cho từng category dựa trên data thực tế
+        self.route_keywords = {
             QueryRoute.ADMISSION: [
-                "tuyển sinh", "đăng ký nhập học", "hồ sơ xét tuyển", 
-                "điểm chuẩn", "học phí", "thủ tục nhập học", "chỉ tiêu tuyển sinh",
-                "phương thức tuyển sinh", "xét tuyển", "thi đánh giá năng lực",
-                "thi tốt nghiệp THPT", "học bổng", "ký túc xá"
+                "tuyển sinh", "xét tuyển", "điểm chuẩn", "hồ sơ", "nhập học", "phương thức", "chỉ tiêu", "lịch tuyển sinh", "kênh thanh toán", "hotline tuyển sinh", "quy chế tuyển sinh", "mức điểm", "đăng ký xét tuyển", "học phí tuyển sinh", "thông báo tuyển sinh", "mã ngành", "tổ hợp xét tuyển", "ưu tiên tuyển sinh", "hướng dẫn tuyển sinh", "thông tin tuyển sinh", "thời gian tuyển sinh", "điều kiện xét tuyển", "kết quả tuyển sinh", "thủ tục nhập học", "xác nhận nhập học", "chuyển trường", "chuyển ngành"
             ],
             QueryRoute.ACADEMIC: [
-                "chương trình học", "môn học chuyên ngành", "giảng viên", 
-                "lịch học", "thời khóa biểu", "đào tạo", "ngành học",
-                "kỹ thuật phần mềm", "hệ thống thông tin", "khoa học máy tính",
-                "mạng máy tính", "công nghệ thông tin", "an toàn thông tin",
-                "trí tuệ nhân tạo", "khoa học dữ liệu"
-            ],
-            QueryRoute.FACILITIES: [
-                "cơ sở vật chất", "thư viện trường", "phòng thí nghiệm", 
-                "khuôn viên", "ký túc xá", "canteen", "tòa nhà giảng đường",
-                "phòng học", "trung tâm dữ liệu", "nhà thi đấu"
+                "quy chế học vụ", "chương trình học", "môn học", "tín chỉ", "giảng viên", "lịch học", "thời khóa biểu", "đào tạo", "ngành học", "học phí", "học bổng", "bảo lưu", "chuyển lớp", "chuyển ngành", "đăng ký học phần", "điểm thi", "thi lại", "học lại", "tốt nghiệp", "thực tập", "hướng dẫn sinh viên", "hoạt động sinh viên", "nghĩa vụ sinh viên", "quyền lợi sinh viên", "nội quy sinh viên", "quy định sinh viên", "học vụ", "học tập", "rèn luyện", "khen thưởng", "kỷ luật", "hỗ trợ sinh viên", "thủ tục sinh viên"
             ],
             QueryRoute.GENERAL: [
-                "giới thiệu trường", "lịch sử phát triển", "sứ mệnh tầm nhìn", 
-                "liên hệ", "địa chỉ", "thành lập", "phát triển", "hợp tác quốc tế"
+                "giới thiệu trường", "lịch sử phát triển", "sứ mệnh", "tầm nhìn", "giá trị cốt lõi", "liên hệ", "địa chỉ", "thành lập", "phát triển", "hợp tác quốc tế", "thành tích", "ngành đào tạo", "mô hình đào tạo", "chiến lược phát triển", "logo", "triết lý giáo dục", "thông tin liên hệ", "cơ sở đào tạo", "quy mô đào tạo", "thành tựu", "giải thưởng", "truyền thống", "tầm nhìn 2030", "sứ mạng", "mục tiêu", "mô hình quản trị", "hội nhập quốc tế"
             ]
         }
-        
+        # Semantic route definitions (dùng cho embedding)
+        self.route_definitions = self.route_keywords
         # Precompute route embeddings for faster routing
         self.route_embeddings = {}
         for route, examples in self.route_definitions.items():
@@ -247,107 +302,157 @@ class RAGEngine:
             logger.error(f"Error adding document to FAISS: {e}")
             raise
     
-    def semantic_search(self, query: str, limit: int = None) -> List[SearchResult]:
-        """Perform semantic search with improved caching and filtering"""
+    def semantic_search(self, query: str, limit: int = None, category_filter: str = None) -> List[SearchResult]:
+        """
+        Perform semantic search with hybrid approach (semantic + keyword matching)
+        """
         if not self._ensure_faiss_initialized():
             logger.warning("FAISS not available, returning empty results")
             return []
         
-        if limit is None:
-            limit = self.config.search_limit
+        limit = limit or self.config.search_limit
+        search_limit = limit * 5  # Get more candidates for filtering
+        
+        logger.info(f"Searching for: '{query}' (limit: {limit}, category_filter: {category_filter})")
         
         # Check cache first
+        cache_key = f"{query}_{category_filter}" if category_filter else query
         if self.redis_client:
-            cache_key = self._get_cache_key(query, "search")
+            cache_key = self._get_cache_key(cache_key, "search")
             try:
                 cached_result = self.redis_client.get(cache_key)
                 if cached_result:
                     cached_data = json.loads(cached_result)
+                    logger.info(f"Returning {len(cached_data)} cached results")
                     return [SearchResult(**item) for item in cached_data[:limit]]
             except Exception as e:
                 logger.warning(f"Cache read error: {e}")
         
         # Generate query embedding
         query_embedding = self.embedding_model.encode([query])
+        logger.info(f"Query embedding shape: {query_embedding.shape}")
         
-        # Search in FAISS
-        if self.faiss_index.ntotal == 0:
-            logger.warning("FAISS index is empty")
-            return []
+        # Perform FAISS search
+        logger.info(f"Searching top {search_limit} results from {self.faiss_index.ntotal} total vectors")
+        D, I = self.faiss_index.search(query_embedding, search_limit)
         
-        # Perform search with more results for filtering
-        search_limit = min(limit * 2, self.faiss_index.ntotal)
-        distances, indices = self.faiss_index.search(
-            query_embedding.astype('float32'), 
-            search_limit
-        )
+        # Convert to list of (distance, index) pairs
+        search_results = list(zip(D[0], I[0]))
+        logger.info(f"Raw search results: {len(search_results)} items")
         
-        # Format and filter results
-        results = []
-        for distance, idx in zip(distances[0], indices[0]):
-            if idx < len(self.faiss_documents):
-                # Convert distance to similarity score (lower distance = higher similarity)
-                similarity_score = 1 / (1 + distance)
+        # Hybrid scoring: combine semantic similarity with keyword matching
+        hybrid_results = []
+        query_lower = query.lower()
+        query_words = set(query_lower.split())
+        
+        for distance, idx in search_results:
+            if idx >= len(self.faiss_documents):
+                continue
                 
-                # Filter by similarity threshold
-                if similarity_score >= self.config.similarity_threshold:
-                    results.append(SearchResult(
-                        content=self.faiss_documents[idx],
-                        metadata=self.faiss_metadata[idx],
-                        score=similarity_score
-                    ))
+            document = self.faiss_documents[idx]
+            metadata = self.faiss_metadata[idx] if idx < len(self.faiss_metadata) else {}
+            
+            # Semantic score (normalized)
+            semantic_score = float(distance)
+            
+            # Keyword matching score
+            doc_lower = document.lower()
+            keyword_matches = sum(1 for word in query_words if word in doc_lower)
+            exact_phrase_match = query_lower in doc_lower
+            
+            # Boost score for keyword matches
+            keyword_boost = 0.0
+            if exact_phrase_match:
+                keyword_boost = 0.3  # Strong boost for exact phrase
+            elif keyword_matches > 0:
+                keyword_boost = 0.1 * keyword_matches  # Moderate boost per keyword
+            
+            # Hybrid score
+            hybrid_score = semantic_score + keyword_boost
+            
+            # Apply category filter if specified
+            if category_filter and metadata.get("category") != category_filter:
+                continue
+            
+            hybrid_results.append(SearchResult(
+                content=document,
+                metadata=metadata,
+                score=hybrid_score
+            ))
         
-        # Sort by score and limit
-        results.sort(key=lambda x: x.score, reverse=True)
-        results = results[:limit]
+        # Sort by hybrid score (descending)
+        hybrid_results.sort(key=lambda x: x.score, reverse=True)
+        
+        # Apply similarity threshold
+        filtered_results = [
+            result for result in hybrid_results 
+            if result.score >= self.config.similarity_threshold
+        ]
+        
+        # Limit results
+        final_results = filtered_results[:limit]
+        
+        logger.info(f"Category matches: {len([r for r in hybrid_results if category_filter and r.metadata.get('category') == category_filter])}, "
+                   f"Similarity matches: {len(filtered_results)}, Final results: {len(final_results)}")
+        
+        # Log top results for debugging
+        for i, result in enumerate(hybrid_results[:3]):
+            logger.info(f"Top result {i+1}: score={result.score:.3f}, category={result.metadata.get('category', 'unknown')}")
+            logger.info(f"Content preview: {result.content[:100]}...")
         
         # Cache results
         if self.redis_client:
             try:
-                cache_data = [asdict(result) for result in results]
+                cache_data = [asdict(result) for result in final_results]
                 self.redis_client.setex(cache_key, self.config.cache_ttl, json.dumps(cache_data))
             except Exception as e:
                 logger.warning(f"Cache write error: {e}")
         
-        return results
+        return final_results
     
     def semantic_route(self, query: str) -> QueryRoute:
-        """Enhanced semantic routing using embeddings"""
-        # Check cache first
-        if self.redis_client:
-            route_key = self._get_cache_key(query, "route")
-            try:
-                cached_route = self.redis_client.get(route_key)
-                if cached_route:
-                    return QueryRoute(cached_route.decode())
-            except Exception as e:
-                logger.warning(f"Route cache read error: {e}")
-        
-        # Generate query embedding
+        """Keyword-prioritized semantic routing"""
+        # Ưu tiên match keyword trước
+        for route, keywords in self.route_keywords.items():
+            for kw in keywords:
+                if kw.lower() in query.lower():
+                    return route
+        # Nếu không match keyword thì dùng semantic
         query_embedding = self.embedding_model.encode([query])[0]
-        
-        # Calculate similarity with each route
         best_route = QueryRoute.GENERAL
         best_similarity = 0
-        
         for route, route_embedding in self.route_embeddings.items():
             similarity = np.dot(query_embedding, route_embedding) / (
                 np.linalg.norm(query_embedding) * np.linalg.norm(route_embedding)
             )
-            
             if similarity > best_similarity:
                 best_similarity = similarity
                 best_route = route
-        
-        # Cache result
-        if self.redis_client:
-            try:
-                self.redis_client.setex(route_key, self.config.cache_ttl, best_route.value)
-            except Exception as e:
-                logger.warning(f"Route cache write error: {e}")
-        
         return best_route
     
+    def semantic_route_multi(self, query: str) -> list:
+        """Trả về danh sách các category phù hợp nhất với query (ưu tiên keyword, có thể nhiều category)"""
+        matched_routes = []
+        for route, keywords in self.route_keywords.items():
+            for kw in keywords:
+                if kw.lower() in query.lower():
+                    matched_routes.append(route)
+                    break  # Không cần check tiếp keyword cùng category
+        if matched_routes:
+            return matched_routes
+        # Nếu không match keyword, dùng semantic (chỉ lấy best route)
+        query_embedding = self.embedding_model.encode([query])[0]
+        best_route = QueryRoute.GENERAL
+        best_similarity = 0
+        for route, route_embedding in self.route_embeddings.items():
+            similarity = np.dot(query_embedding, route_embedding) / (
+                np.linalg.norm(query_embedding) * np.linalg.norm(route_embedding)
+            )
+            if similarity > best_similarity:
+                best_similarity = similarity
+                best_route = route
+        return [best_route]
+
     def _build_context(self, search_results: List[SearchResult]) -> Tuple[str, int]:
         """Build context string with token management"""
         context_parts = []
@@ -432,7 +537,7 @@ Hãy trả lời dựa trên thông tin trên."""
             return f"Xin lỗi, có lỗi xảy ra khi tạo câu trả lời. Vui lòng thử lại sau."
     
     def process_query(self, query: str, chat_history: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Process user query with enhanced pipeline"""
+        """Process user query with enhanced pipeline (multi-category support)"""
         if not query or len(query.strip()) < 3:
             return {
                 "response": "Vui lòng nhập câu hỏi cụ thể hơn.",
@@ -440,38 +545,161 @@ Hãy trả lời dựa trên thông tin trên."""
                 "route": QueryRoute.GENERAL.value,
                 "metadata": {"error": "Query too short"}
             }
-        
         try:
-            # Semantic routing
-            route = self.semantic_route(query)
-            logger.info(f"Query routed to: {route.value}")
-            
-            # Search for relevant documents
-            search_results = self.semantic_search(query)
-            logger.info(f"Found {len(search_results)} relevant documents")
-            
+            # Multi-category routing
+            routes = self.semantic_route_multi(query)
+            logger.info(f"Query routed to: {[r.value for r in routes]}")
+            # Map route(s) to category filter(s)
+            category_filters = []
+            for route in routes:
+                if route == QueryRoute.ADMISSION:
+                    category_filters.append("admission")
+                elif route == QueryRoute.ACADEMIC:
+                    category_filters.append("academic")
+            # GENERAL không filter để lấy kết quả rộng
+            # Nếu có nhiều category, tìm kiếm lần lượt và gộp kết quả (ưu tiên không trùng lặp)
+            search_results = []
+            seen_doc_ids = set()
+            for cat in category_filters:
+                results = self.semantic_search(query, category_filter=cat)
+                for r in results:
+                    doc_id = r.metadata.get("chunk_index", None)  # hoặc id khác nếu có
+                    if doc_id is None or doc_id not in seen_doc_ids:
+                        search_results.append(r)
+                        if doc_id is not None:
+                            seen_doc_ids.add(doc_id)
+            logger.info(f"Found {len(search_results)} relevant documents (category filters: {category_filters})")
+            # Nếu không có kết quả ở các category này thì fallback sang GENERAL
+            if not search_results and category_filters:
+                logger.info("No results in specific categories, fallback to GENERAL")
+                search_results = self.semantic_search(query, category_filter=None)
+                logger.info(f"Found {len(search_results)} documents in GENERAL fallback")
+            # Nếu vẫn không có kết quả, thử với threshold thấp hơn
+            if not search_results:
+                logger.info("No results found, trying with lower similarity threshold")
+                original_threshold = self.config.similarity_threshold
+                self.config.similarity_threshold = 0.1
+                search_results = self.semantic_search(query)
+                self.config.similarity_threshold = original_threshold
+                logger.info(f"Found {len(search_results)} documents with lower threshold")
             # Generate response
-            response = self.generate_response(query, search_results, chat_history)
-            
+            if search_results:
+                response = self.generate_response(query, search_results, chat_history)
+            else:
+                response = f"Xin lỗi, tôi không tìm thấy thông tin liên quan đến '{query}' trong cơ sở dữ liệu. Vui lòng thử lại với từ khóa khác hoặc liên hệ trực tiếp với học viện để được hỗ trợ."
             return {
                 "response": response,
                 "sources": [asdict(result) for result in search_results],
-                "route": route.value,
+                "route": [r.value for r in routes],
+                "category_filter": category_filters,
                 "metadata": {
                     "total_results": len(search_results),
                     "avg_score": np.mean([r.score for r in search_results]) if search_results else 0,
                     "timestamp": datetime.utcnow().isoformat()
                 }
             }
-            
         except Exception as e:
             logger.error(f"Error processing query: {e}")
+            logger.error(traceback.format_exc())
             return {
                 "response": "Xin lỗi, có lỗi xảy ra khi xử lý câu hỏi. Vui lòng thử lại sau.",
                 "sources": [],
                 "route": QueryRoute.GENERAL.value,
                 "metadata": {"error": str(e)}
             }
+    
+    def test_faiss_search(self, query: str) -> Dict[str, Any]:
+        """Simple test function to check if FAISS search works"""
+        logger.info(f"=== TESTING FAISS SEARCH FOR: '{query}' ===")
+        
+        if not self._ensure_faiss_initialized():
+            return {"error": "FAISS not initialized"}
+        
+        try:
+            # Simple search without any filtering
+            query_embedding = self.embedding_model.encode([query])
+            distances, indices = self.faiss_index.search(
+                query_embedding.astype('float32'), 
+                10  # Get top 10
+            )
+            
+            results = []
+            for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
+                if idx < len(self.faiss_documents):
+                    similarity = 1 / (1 + distance)
+                    results.append({
+                        "rank": i + 1,
+                        "index": idx,
+                        "distance": float(distance),
+                        "similarity": float(similarity),
+                        "content": self.faiss_documents[idx][:200] + "..."
+                    })
+            
+            return {
+                "query": query,
+                "total_vectors": self.faiss_index.ntotal,
+                "total_documents": len(self.faiss_documents),
+                "results": results
+            }
+            
+        except Exception as e:
+            logger.error(f"Test search error: {e}")
+            return {"error": str(e)}
+    
+    def debug_search(self, query: str) -> Dict[str, Any]:
+        """Debug search functionality"""
+        logger.info(f"=== DEBUG SEARCH FOR: '{query}' ===")
+        
+        # Check FAISS status
+        if not self._ensure_faiss_initialized():
+            return {"error": "FAISS not initialized"}
+        
+        logger.info(f"FAISS index has {self.faiss_index.ntotal} vectors")
+        logger.info(f"Documents count: {len(self.faiss_documents)}")
+        logger.info(f"Metadata count: {len(self.faiss_metadata)}")
+        
+        # Check category distribution
+        category_counts = {}
+        for meta in self.faiss_metadata:
+            cat = meta.get("category", "unknown")
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        logger.info(f"Category distribution: {category_counts}")
+        
+        # Test raw search without filters
+        try:
+            query_embedding = self.embedding_model.encode([query])
+            distances, indices = self.faiss_index.search(
+                query_embedding.astype('float32'), 
+                20  # Get top 20 results
+            )
+            
+            logger.info(f"Raw search returned {len(indices[0])} results")
+            
+            # Show top 5 raw results
+            raw_results = []
+            for i, (distance, idx) in enumerate(zip(distances[0][:5], indices[0][:5])):
+                if idx < len(self.faiss_documents):
+                    similarity = 1 / (1 + distance)
+                    raw_results.append({
+                        "rank": i + 1,
+                        "index": idx,
+                        "distance": distance,
+                        "similarity": similarity,
+                        "category": self.faiss_metadata[idx].get("category", "unknown"),
+                        "content_preview": self.faiss_documents[idx][:100] + "..."
+                    })
+            
+            return {
+                "faiss_status": "OK",
+                "total_vectors": self.faiss_index.ntotal,
+                "category_distribution": category_counts,
+                "raw_search_results": raw_results
+            }
+            
+        except Exception as e:
+            logger.error(f"Debug search error: {e}")
+            return {"error": str(e)}
     
     def get_stats(self) -> Dict[str, Any]:
         """Get RAG engine statistics"""
